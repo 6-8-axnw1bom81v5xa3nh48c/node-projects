@@ -2,10 +2,31 @@
 
 var fs = require('fs');
 
-var fd = fs.openSync('\\\\C:\\', 'r');
+const SECTOR_SIZE = 512;
 
-module.exports = {
-  read
+class Handle{
+  constructor(file){
+    this.fd = fs.openSync(file, 'r');
+  }
+
+  read(sector, size = 1){
+    size *= SECTOR_SIZE;
+    var buff = Buffer.alloc(size);
+    fs.readSync(this.fd, buff, 0, size, sector * SECTOR_SIZE);
+    return buff;
+  }
+
+  close(){
+    fs.closeSync(this.fd);
+  }
 };
 
-function read(sector){}
+module.exports = {
+  Handle,
+  open,
+};
+
+function open(diskLetter){
+  diskLetter = diskLetter[0].toUpperCase();
+  return new Handle(`\\\\.\\${diskLetter}:`);
+}

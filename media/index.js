@@ -1,24 +1,29 @@
 'use strict';
 
-var path = require('path');
 var cp = require('child_process');
-var Canvas = require('canvas');
+var {Canvas} = require('../media/node_modules/canvas');
 var O = require('../framework');
+var formatFileName = require('../format-file-name');
 
 const BGRA = '-f rawvideo -pix_fmt bgra';
 const RGBA = '-f rawvideo -pix_fmt rgba';
 const TRUNC = '-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2"';
 const HD_PRESET = '-c:v libx264 -preset slow -profile:v high -crf 18 -coder 1 -pix_fmt yuv420p -movflags +faststart -g 30 -bf 2 -c:a aac -b:a 384k -profile:a aac_low';
 
-var dirs = {
-  dw: 'C:/Users/Thomas/Downloads',
-  img: 'C:/wamp/www/projects/image',
-  vid: 'C:/wamp/www/projects/video'
-};
-
 var procsNum = 0;
 
-module.exports.renderImage = (output, w, h, frameFunc, exitCb = null) => {
+module.exports = {
+  renderImage,
+  editImage,
+  renderVideo,
+  editVideo,
+  renderAudio,
+  custom,
+  spawnFfmpeg,
+  blurRegion,
+};
+
+function renderImage(output, w, h, frameFunc, exitCb = O.nop){
   output = formatFileName(output);
 
   var canvas = createCanvas(w, h);
@@ -29,9 +34,9 @@ module.exports.renderImage = (output, w, h, frameFunc, exitCb = null) => {
   frameFunc(w, h, g);
 
   proc.stdin.end(canvas.toBuffer('raw'));
-};
+}
 
-module.exports.editImage = (input, output, frameFunc, exitCb = null) => {
+function editImage(input, output, frameFunc, exitCb = O.nop){
   input = formatFileName(input);
   output = formatFileName(output);
 
@@ -55,9 +60,9 @@ module.exports.editImage = (input, output, frameFunc, exitCb = null) => {
       }
     });
   });
-};
+}
 
-module.exports.renderVideo = (output, w, h, fps, hd, frameFunc, exitCb = null) => {
+function renderVideo(output, w, h, fps, hd, frameFunc, exitCb = O.nop){
   output = formatFileName(output);
 
   var canvas = createCanvas(w, h);
@@ -84,9 +89,9 @@ module.exports.renderVideo = (output, w, h, fps, hd, frameFunc, exitCb = null) =
     if(notFinished) proc.stdin.write(buff, frame);
     else proc.stdin.end(buff);
   }
-};
+}
 
-module.exports.editVideo = (input, output, w2, h2, fps, hd, frameFunc, exitCb = null) => {
+function editVideo(input, output, w2, h2, fps, hd, frameFunc, exitCb = O.nop){
   input = formatFileName(input);
   output = formatFileName(output);
 
@@ -129,9 +134,9 @@ module.exports.editVideo = (input, output, w2, h2, fps, hd, frameFunc, exitCb = 
       proc2.stdin.end();
     });
   });
-};
+}
 
-module.exports.renderAudio = (output, w, func, exitCb = null) => {
+function renderAudio(output, w, func, exitCb = O.nop){
   output = formatFileName(output);
 
   var buffLen = w << 2;
@@ -142,7 +147,7 @@ module.exports.renderAudio = (output, w, func, exitCb = null) => {
   frame();
 
   function frame(){
-    var buff = Buffer.alloc(buffLen)
+    var buff = Buffer.alloc(buffLen);
     var notFinished = func(w, buff, ++f);
 
     if(notFinished === null){
@@ -154,12 +159,28 @@ module.exports.renderAudio = (output, w, func, exitCb = null) => {
     if(notFinished) proc.stdin.write(buff, frame);
     else proc.stdin.end(buff);
   }
-};
+}
 
-module.exports.blurRegion = (g, x, y, w, h, r = 5) => {
+function custom(inputArgs, outputArgs, output, func, exitCb = O.nop){
+  output = formatFileName(output);
+
+  var f = 0;
+  var proc = spawnFfmpeg(`${inputArgs} -i - -y ${outputArgs} "${output}"`, exitCb);
+
+  frame();
+
+  function frame(){
+    var buff = func(++f);
+
+    if(buff) proc.stdin.write(buff, frame);
+    else proc.stdin.end();
+  }
+}
+
+function blurRegion(g, x, y, w, h, r = 5){
   blur(g, x, y, w, h, r);
   blur(g, x, y, w, h, r);
-};
+}
 
 function blur(g, xx, yy, w, h, r){
   var imgd = g.getImageData(xx, yy, w, h);
@@ -220,7 +241,7 @@ function putBuffer(g, buff){
   g.putImageData(imgd, 0, 0);
 }
 
-function spawnFfmpeg(args, exitCb){
+function spawnFfmpeg(args, exitCb = O.nop){
   return spawnProc('ffmpeg', args, exitCb);
 }
 
@@ -238,7 +259,7 @@ function getMediaParams(mediaFile, cb){
   });
 }
 
-function spawnProc(name, args, exitCb = null){
+function spawnProc(name, args, exitCb = O.nop){
   procsNum++;
 
   var proc = cp.spawn(name, [
@@ -252,7 +273,7 @@ function spawnProc(name, args, exitCb = null){
   return proc;
 }
 
-function onProcExit(exitCb = null){
+function onProcExit(exitCb = O.nop){
   procsNum--;
 
   if(exitCb !== null) tryToCallExitCb();
@@ -275,15 +296,4 @@ function createCanvas(w, h){
   g.fillStyle = 'white';
 
   return g.canvas;
-}
-
-function formatFileName(fileName){
-  if(fileName[0] == '-' && fileName.length > 1){
-    var dir = fileName.match(/[a-zA-Z0-9]+/)[0];
-
-    fileName = fileName.substring(dir.length + 2);
-    fileName = path.join(dirs[dir], fileName);
-  }
-
-  return fileName;
 }

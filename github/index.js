@@ -6,10 +6,12 @@ var cp = require('child_process');
 var O = require('../framework');
 var fsRec = require('../fs-recursive');
 var encryptor = require('../encryptor');
+var minifier = require('../minifier');
 
 var repos = require('./repos.json');
 var noCopyList = require('./no-copy-list.json');
-var supportedExtensions = require('./supported-extensions');
+var skipList = require('./skip-list.json');
+var supportedExtensions = require('./supported-extensions.json');
 
 module.exports = {
   push
@@ -25,7 +27,10 @@ function push(repoName, cb = O.nop){
 
   var user = repos.user;
   var repo = repos.repos[repoName];
-  var {name, src, dest, encrypt} = repo;
+  var {name, src, dest, encrypt, minify} = repo;
+
+  name = normalizeString(name);
+  dest = normalizeString(dest);
 
   src = path.normalize(src);
   dest = path.normalize(dest);
@@ -52,16 +57,27 @@ function push(repoName, cb = O.nop){
 
   resetDir(dest);
 
-  // Encrypt (if encryption is enabled)
-
   if(fs.existsSync(tmpDir)){
     fsRec.deleteFilesSync(tmpDir);
   }
 
   if(encrypt){
+    // Encrypt
+
     fs.mkdirSync(tmpDir);
 
     encryptor.encrypt(src, tmpDir, O.password, err => {
+      if(err) return cb(err);
+
+      src = tmpDir;
+      copyAndPushFiles();
+    });
+  }else if(minify){
+    // Minify
+
+    fs.mkdirSync(tmpDir);
+
+    minifier.minify(src, tmpDir, err => {
       if(err) return cb(err);
 
       src = tmpDir;
@@ -75,8 +91,10 @@ function push(repoName, cb = O.nop){
     // Copy files
 
     fsRec.processFilesSync(src, e => {
+      var fp = e.fullPath;
+
       if(e.processed) return;
-      if(e.fullPath.includes('node_modules')) return;
+      if(skipList.some(a => fp.endsWith(a) || fp.includes(`${a}\\`))) return;
       if(noCopyList.some(a => e.name == a)) return;
 
       var srcPath = e.relativePath.split(/[\/\\]/).slice(1).join`//`;
@@ -91,6 +109,7 @@ function push(repoName, cb = O.nop){
         if(!supportedExtensions.some(a => ext == a)) return;
 
         var content = fs.readFileSync(e.fullPath);
+        content = processFileContent(e.name, content);
         fs.writeFileSync(destPath, content);
       }
     });
@@ -103,9 +122,19 @@ function push(repoName, cb = O.nop){
   }
 }
 
+function processFileContent(file, buff){
+  var str = buff.toString();
+
+  switch(file){
+    case 'projects.txt': return O.sanl(str).filter(a => a !== 'blank' && a !== 'test').join`\n`; break;
+  }
+
+  return buff;
+}
+
 function resetDir(dir){
   fsRec.processFilesSync(dir, e => {
-    var isGit = e.fullPath.includes('.git');
+    var isGit = /(?:^|[\/\\])\.git(?:[^a-zA-Z0-9]|$)/.test(e.fullPath);
 
     if(e.processed){
       if(e.fullPath != dir && !isGit){
@@ -118,6 +147,14 @@ function resetDir(dir){
 
     if(!isGit){
       fs.unlinkSync(e.fullPath);
+    }
+  });
+}
+
+function normalizeString(str){
+  return str.replace(/\%([^\%]*)\%/g, (match, param) => {
+    switch(param){
+      case 'user': return repos.user.toLowerCase(); break;
     }
   });
 }
