@@ -54,7 +54,7 @@ function editImage(input, output, frameFunc, exitCb = O.nop){
 
       if(buff.length == buffLen){
         putBuffer(g, buff);
-        frameFunc(w, h, g);
+        frameFunc(w, h, g, proc2.stdout);
 
         proc2.stdin.end(canvas.toBuffer('raw'));
       }
@@ -122,7 +122,7 @@ function editVideo(input, output, w2, h2, fps, hd, frameFunc, exitCb = O.nop){
         
         putBuffer(g1, buff);
         buff = Buffer.alloc(0);
-        frameFunc(w1, h1, w2, h2, g1, g2, ++f, framesNum);
+        frameFunc(w1, h1, w2, h2, g1, g2, ++f, framesNum, proc2.stdout);
 
         proc2.stdin.write(g2.canvas.toBuffer('raw'), () => proc1.stdout.resume());
       }
